@@ -341,6 +341,7 @@ export const adminAPI = {
   getProductMappings: (params?: any) => api.get<ApiResponse>('/admin/product-mappings', { params }),
   getProductMapping: (id: number) => api.get<ApiResponse>(`/admin/product-mappings/${id}`),
   importUpstreamProduct: (data: any) => api.post<ApiResponse>('/admin/product-mappings/import', data),
+  batchImportUpstreamProducts: (data: any) => api.post<ApiResponse>('/admin/product-mappings/batch-import', data),
   syncProductMapping: (id: number) => api.post<ApiResponse>(`/admin/product-mappings/${id}/sync`),
   updateProductMappingStatus: (id: number, data: any) => api.put<ApiResponse>(`/admin/product-mappings/${id}/status`, data),
   deleteProductMapping: (id: number) => api.delete<ApiResponse>(`/admin/product-mappings/${id}`),

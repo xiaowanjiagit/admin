@@ -1018,13 +1018,14 @@ watch(
               <p v-else class="mt-1 text-xs text-muted-foreground">{{ t('admin.products.form.manualStockTotalTip') }}</p>
             </div>
 
-            <div v-if="form.fulfillment_type === 'manual'" class="col-span-2 rounded-xl border border-border bg-muted/20 p-4 space-y-4">
+            <div v-if="form.fulfillment_type === 'manual' || editingIsMapped" class="col-span-2 rounded-xl border border-border bg-muted/20 p-4 space-y-4">
               <div class="flex items-center justify-between">
                 <div>
                   <h3 class="text-sm font-semibold text-foreground">{{ t('admin.products.form.manualFormSchemaTitle') }}</h3>
                   <p class="text-xs text-muted-foreground mt-1">{{ t('admin.products.form.manualFormSchemaTip') }}</p>
+                  <p v-if="editingIsMapped" class="mt-1 text-xs text-indigo-600">{{ t('admin.products.mappedFormSchemaLocked') }}</p>
                 </div>
-                <Button type="button" size="sm" variant="outline" @click="addManualFormField">
+                <Button v-if="!editingIsMapped" type="button" size="sm" variant="outline" @click="addManualFormField">
                   {{ t('admin.products.form.manualFormAddField') }}
                 </Button>
               </div>
@@ -1036,7 +1037,7 @@ watch(
               <div v-for="(field, index) in form.manual_form_schema.fields" :key="index" class="rounded-lg border border-border bg-background p-4 space-y-3">
                 <div class="flex items-center justify-between">
                   <div class="text-xs font-medium text-muted-foreground">{{ t('admin.products.form.manualFormFieldTitle', { index: index + 1 }) }}</div>
-                  <Button type="button" variant="destructive" size="sm" @click="removeManualFormField(index)">
+                  <Button v-if="!editingIsMapped" type="button" variant="destructive" size="sm" @click="removeManualFormField(index)">
                     {{ t('admin.products.form.manualFormRemoveField') }}
                   </Button>
                 </div>
@@ -1044,17 +1045,17 @@ watch(
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldKey') }}</label>
-                    <Input v-model="field.key" :placeholder="t('admin.products.form.manualFormFieldKeyPlaceholder')" />
+                    <Input v-model="field.key" :placeholder="t('admin.products.form.manualFormFieldKeyPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldType') }}</label>
-                    <select v-model="field.type" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm">
+                    <select v-model="field.type" :disabled="editingIsMapped" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                       <option v-for="typeItem in manualFieldTypeOptions" :key="typeItem.value" :value="typeItem.value">{{ typeItem.label }}</option>
                     </select>
                   </div>
                   <div class="flex items-end">
                     <label class="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                      <input v-model="field.required" type="checkbox" class="h-4 w-4 accent-primary" />
+                      <input v-model="field.required" type="checkbox" class="h-4 w-4 accent-primary" :disabled="editingIsMapped" />
                       {{ t('admin.products.form.manualFormFieldRequired') }}
                     </label>
                   </div>
@@ -1063,39 +1064,39 @@ watch(
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldLabel', { lang: getCurrentLangName() }) }}</label>
-                    <Input v-model="field.label[currentLang]" :placeholder="t('admin.products.form.manualFormFieldLabelPlaceholder')" />
+                    <Input v-model="field.label[currentLang]" :placeholder="t('admin.products.form.manualFormFieldLabelPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldPlaceholder', { lang: getCurrentLangName() }) }}</label>
-                    <Input v-model="field.placeholder[currentLang]" :placeholder="t('admin.products.form.manualFormFieldPlaceholderPlaceholder')" />
+                    <Input v-model="field.placeholder[currentLang]" :placeholder="t('admin.products.form.manualFormFieldPlaceholderPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                 </div>
 
                 <div v-if="isTextLikeField(field.type)" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldRegex') }}</label>
-                    <Input v-model="field.regex" :placeholder="t('admin.products.form.manualFormFieldRegexPlaceholder')" />
+                    <Input v-model="field.regex" :placeholder="t('admin.products.form.manualFormFieldRegexPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldMaxLength') }}</label>
-                    <Input v-model="field.max_len" type="number" min="1" :placeholder="t('admin.products.form.manualFormFieldMaxLengthPlaceholder')" />
+                    <Input v-model="field.max_len" type="number" min="1" :placeholder="t('admin.products.form.manualFormFieldMaxLengthPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                 </div>
 
                 <div v-if="field.type === 'number'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldMin') }}</label>
-                    <Input v-model="field.min" type="number" :placeholder="t('admin.products.form.manualFormFieldMinPlaceholder')" />
+                    <Input v-model="field.min" type="number" :placeholder="t('admin.products.form.manualFormFieldMinPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldMax') }}</label>
-                    <Input v-model="field.max" type="number" :placeholder="t('admin.products.form.manualFormFieldMaxPlaceholder')" />
+                    <Input v-model="field.max" type="number" :placeholder="t('admin.products.form.manualFormFieldMaxPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                 </div>
 
                 <div v-if="field.type === 'select' || field.type === 'radio' || field.type === 'checkbox'">
                   <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.manualFormFieldOptions') }}</label>
-                  <Textarea v-model="field.options_text" rows="4" :placeholder="t('admin.products.form.manualFormFieldOptionsPlaceholder')" />
+                  <Textarea v-model="field.options_text" rows="4" :placeholder="t('admin.products.form.manualFormFieldOptionsPlaceholder')" :disabled="editingIsMapped" />
                   <p class="mt-1 text-xs text-muted-foreground">{{ t('admin.products.form.manualFormFieldOptionsTip') }}</p>
                 </div>
               </div>
@@ -1106,8 +1107,9 @@ watch(
                 <div>
                   <h3 class="text-sm font-semibold text-foreground">{{ t('admin.products.form.skuTitle') }}</h3>
                   <p class="text-xs text-muted-foreground mt-1">{{ t('admin.products.form.skuTip') }}</p>
+                  <p v-if="editingIsMapped" class="mt-1 text-xs text-indigo-600">{{ t('admin.products.mappedSkuLocked') }}</p>
                 </div>
-                <Button type="button" size="sm" variant="outline" @click="addSKU">
+                <Button v-if="!editingIsMapped" type="button" size="sm" variant="outline" @click="addSKU">
                   {{ t('admin.products.form.skuAdd') }}
                 </Button>
               </div>
@@ -1119,7 +1121,7 @@ watch(
               <div v-for="(sku, index) in form.skus" :key="`sku-${index}-${sku.id || 0}`" class="rounded-lg border border-border bg-background p-4 space-y-3">
                 <div class="flex items-center justify-between">
                   <div class="text-xs font-medium text-muted-foreground">{{ t('admin.products.form.skuItemTitle', { index: index + 1 }) }}</div>
-                  <Button type="button" size="sm" variant="destructive" @click="removeSKU(index)">
+                  <Button v-if="!editingIsMapped" type="button" size="sm" variant="destructive" @click="removeSKU(index)">
                     {{ t('admin.products.form.skuRemove') }}
                   </Button>
                 </div>
@@ -1127,11 +1129,11 @@ watch(
                 <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
                   <div class="md:col-span-1">
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.skuCode') }}</label>
-                    <Input v-model="sku.sku_code" :placeholder="t('admin.products.form.skuCodePlaceholder')" />
+                    <Input v-model="sku.sku_code" :placeholder="t('admin.products.form.skuCodePlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.skuSpec', { lang: getCurrentLangName() }) }}</label>
-                    <Input v-model="sku.spec_values[currentLang]" :placeholder="t('admin.products.form.skuSpecPlaceholder')" />
+                    <Input v-model="sku.spec_values[currentLang]" :placeholder="t('admin.products.form.skuSpecPlaceholder')" :disabled="editingIsMapped" />
                   </div>
                   <div class="md:col-span-1">
                     <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.products.form.skuPrice') }}</label>

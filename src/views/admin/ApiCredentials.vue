@@ -25,6 +25,7 @@ const pagination = reactive({
 const jumpPage = ref('')
 
 const filterStatus = ref('__all__')
+const searchQuery = ref('')
 
 const statusOptions = [
   { value: '__all__', key: 'apiCredentials.filters.allStatus' },
@@ -42,15 +43,12 @@ const showReject = ref(false)
 const rejectId = ref<number>(0)
 const rejectReason = ref('')
 
-// Secret dialog (after approve)
-const showSecret = ref(false)
-const secretData = ref<{ api_key: string; api_secret: string }>({ api_key: '', api_secret: '' })
-
 const fetchCredentials = async (page = 1) => {
   loading.value = true
   try {
     const params: any = { page, page_size: pagination.page_size }
     if (filterStatus.value && filterStatus.value !== '__all__') params.status = filterStatus.value
+    if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
     const res = await adminAPI.getApiCredentials(params)
     credentials.value = res.data?.data || []
     const pg = res.data?.pagination
@@ -87,12 +85,7 @@ const handleApprove = async (id: number) => {
   const ok = await confirmAction(t('apiCredentials.approve.confirm'))
   if (!ok) return
   try {
-    const res = await adminAPI.approveApiCredential(id)
-    const data = res.data?.data
-    if (data?.api_key && data?.api_secret) {
-      secretData.value = { api_key: data.api_key, api_secret: data.api_secret }
-      showSecret.value = true
-    }
+    await adminAPI.approveApiCredential(id)
     notifySuccess(t('apiCredentials.approve.success'))
     fetchCredentials(pagination.page)
   } catch (e: any) {
@@ -179,6 +172,15 @@ onMounted(() => fetchCredentials())
           </SelectItem>
         </SelectContent>
       </Select>
+      <Input
+        v-model="searchQuery"
+        class="w-[240px]"
+        :placeholder="t('apiCredentials.filters.searchPlaceholder')"
+        @keyup.enter="fetchCredentials(1)"
+      />
+      <Button size="sm" variant="outline" @click="fetchCredentials(1)">
+        {{ t('apiCredentials.filters.search') }}
+      </Button>
     </div>
 
     <!-- Table -->
@@ -187,7 +189,7 @@ onMounted(() => fetchCredentials())
         <TableHeader>
           <TableRow>
             <TableHead>{{ t('apiCredentials.columns.id') }}</TableHead>
-            <TableHead>{{ t('apiCredentials.columns.userId') }}</TableHead>
+            <TableHead>{{ t('apiCredentials.columns.user') }}</TableHead>
             <TableHead>{{ t('apiCredentials.columns.apiKey') }}</TableHead>
             <TableHead>{{ t('apiCredentials.columns.status') }}</TableHead>
             <TableHead>{{ t('apiCredentials.columns.isActive') }}</TableHead>
@@ -205,7 +207,13 @@ onMounted(() => fetchCredentials())
           </TableRow>
           <TableRow v-for="cred in credentials" :key="cred.id">
             <TableCell><IdCell :id="cred.id" /></TableCell>
-            <TableCell>{{ cred.user_id }}</TableCell>
+            <TableCell>
+              <div class="text-sm">
+                <div class="font-medium">{{ cred.user?.display_name || '-' }}</div>
+                <div class="text-xs text-muted-foreground">{{ cred.user?.email || '-' }}</div>
+                <div class="text-xs text-muted-foreground">ID: {{ cred.user_id }}</div>
+              </div>
+            </TableCell>
             <TableCell class="font-mono text-xs max-w-[200px] truncate">{{ cred.api_key || '-' }}</TableCell>
             <TableCell>
               <Badge :variant="statusVariant(cred.status)">
@@ -289,8 +297,12 @@ onMounted(() => fetchCredentials())
           <div class="grid grid-cols-[120px_1fr] gap-y-2">
             <span class="text-muted-foreground">{{ t('apiCredentials.columns.id') }}</span>
             <span>{{ detailCred.id }}</span>
-            <span class="text-muted-foreground">{{ t('apiCredentials.columns.userId') }}</span>
-            <span>{{ detailCred.user_id }}</span>
+            <span class="text-muted-foreground">{{ t('apiCredentials.columns.user') }}</span>
+            <div>
+              <div>{{ detailCred.user?.display_name || '-' }}</div>
+              <div class="text-xs text-muted-foreground">{{ detailCred.user?.email || '-' }}</div>
+              <div class="text-xs text-muted-foreground">ID: {{ detailCred.user_id }}</div>
+            </div>
             <span class="text-muted-foreground">{{ t('apiCredentials.columns.apiKey') }}</span>
             <span class="font-mono text-xs break-all">{{ detailCred.api_key || '-' }}</span>
             <span class="text-muted-foreground">{{ t('apiCredentials.columns.status') }}</span>
@@ -335,31 +347,5 @@ onMounted(() => fetchCredentials())
       </DialogScrollContent>
     </Dialog>
 
-    <!-- Secret Dialog (after approve) -->
-    <Dialog v-model:open="showSecret">
-      <DialogScrollContent class="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{{ t('apiCredentials.approve.secretTitle') }}</DialogTitle>
-        </DialogHeader>
-        <div class="space-y-3">
-          <p class="text-sm text-amber-600 dark:text-amber-400 font-medium">
-            {{ t('apiCredentials.approve.secretWarning') }}
-          </p>
-          <div class="space-y-2 text-sm">
-            <div>
-              <span class="text-muted-foreground">API Key: </span>
-              <code class="bg-muted px-2 py-1 rounded text-xs break-all">{{ secretData.api_key }}</code>
-            </div>
-            <div>
-              <span class="text-muted-foreground">API Secret: </span>
-              <code class="bg-muted px-2 py-1 rounded text-xs break-all">{{ secretData.api_secret }}</code>
-            </div>
-          </div>
-          <div class="flex justify-end">
-            <Button @click="showSecret = false">OK</Button>
-          </div>
-        </div>
-      </DialogScrollContent>
-    </Dialog>
   </div>
 </template>

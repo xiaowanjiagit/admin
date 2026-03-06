@@ -104,9 +104,18 @@ const openEditModal = (conn: any) => {
     protocol: conn.protocol || 'dujiao-next',
     callback_url: conn.callback_url || '',
     retry_max: conn.retry_max ?? 3,
-    retry_intervals: Array.isArray(conn.retry_intervals)
-      ? conn.retry_intervals.join(',')
-      : conn.retry_intervals || '30,60,120',
+    retry_intervals: (() => {
+      const ri = conn.retry_intervals
+      if (Array.isArray(ri)) return ri.join(',')
+      if (typeof ri === 'string') {
+        try {
+          const parsed = JSON.parse(ri)
+          if (Array.isArray(parsed)) return parsed.join(',')
+        } catch { /* ignore */ }
+        return ri
+      }
+      return '30,60,120'
+    })(),
   })
   showModal.value = true
 }
@@ -128,7 +137,7 @@ const buildPayload = () => {
     protocol: form.protocol,
     callback_url: form.callback_url,
     retry_max: Number(form.retry_max) || 3,
-    retry_intervals: intervals,
+    retry_intervals: JSON.stringify(intervals),
   }
 }
 
