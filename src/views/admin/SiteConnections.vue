@@ -38,7 +38,11 @@ const form = reactive({
   callback_url: '',
   retry_max: 3,
   retry_intervals: '30,60,120',
+  price_markup_percent: 0,
+  price_rounding_mode: 'none',
+  auto_sync_price: 'false',
 })
+const reapplyingId = ref<number | null>(null)
 
 const siteConnectionSchema = {
   name: [rules.required()],
@@ -93,6 +97,9 @@ const resetForm = () => {
     callback_url: '',
     retry_max: 3,
     retry_intervals: '30,60,120',
+    price_markup_percent: 0,
+    price_rounding_mode: 'none',
+    auto_sync_price: 'false',
   })
 }
 
@@ -127,6 +134,9 @@ const openEditModal = (conn: AdminSiteConnection) => {
       }
       return '30,60,120'
     })(),
+    price_markup_percent: conn.price_markup_percent ?? 0,
+    price_rounding_mode: conn.price_rounding_mode || 'none',
+    auto_sync_price: conn.auto_sync_price ? 'true' : 'false',
   })
   showModal.value = true
 }
@@ -150,6 +160,9 @@ const buildPayload = () => {
     callback_url: form.callback_url,
     retry_max: Number(form.retry_max) || 3,
     retry_intervals: JSON.stringify(intervals),
+    price_markup_percent: Number(form.price_markup_percent) || 0,
+    price_rounding_mode: form.price_rounding_mode,
+    auto_sync_price: form.auto_sync_price === 'true',
   }
 }
 
@@ -210,6 +223,24 @@ const handleDelete = async (conn: AdminSiteConnection) => {
   }
 }
 
+const handleReapplyMarkup = async (conn: AdminSiteConnection) => {
+  const confirmed = await confirmAction({
+    description: t('siteConnections.reapplyMarkup.confirm', { name: conn.name || '#' + conn.id }),
+    confirmText: t('siteConnections.actions.reapplyMarkup'),
+  })
+  if (!confirmed) return
+  reapplyingId.value = conn.id
+  try {
+    const res = await adminAPI.reapplyConnectionMarkup(conn.id)
+    const count = (res.data?.data as Record<string, number>)?.updated_products ?? 0
+    notifySuccess(t('siteConnections.reapplyMarkup.success', { count }))
+  } catch (err: any) {
+    notifyError(err?.response?.data?.message || err?.message)
+  } finally {
+    reapplyingId.value = null
+  }
+}
+
 const statusBadgeClass = (status?: string) => {
   switch (status) {
     case 'active':
@@ -254,19 +285,20 @@ onMounted(() => {
             <TableHead class="min-w-[220px] px-6 py-3">{{ t('siteConnections.columns.name') }}</TableHead>
             <TableHead class="min-w-[280px] px-6 py-3">{{ t('siteConnections.columns.baseUrl') }}</TableHead>
             <TableHead class="min-w-[140px] px-6 py-3">{{ t('siteConnections.columns.protocol') }}</TableHead>
+            <TableHead class="min-w-[100px] px-6 py-3">{{ t('siteConnections.columns.markup') }}</TableHead>
             <TableHead class="min-w-[120px] px-6 py-3">{{ t('siteConnections.columns.status') }}</TableHead>
             <TableHead class="min-w-[180px] px-6 py-3">{{ t('siteConnections.columns.lastPing') }}</TableHead>
-            <TableHead class="min-w-[240px] px-6 py-3 text-right">{{ t('siteConnections.columns.actions') }}</TableHead>
+            <TableHead class="min-w-[280px] px-6 py-3 text-right">{{ t('siteConnections.columns.actions') }}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody class="divide-y divide-border">
           <TableRow v-if="loading">
-            <TableCell :colspan="7" class="p-0">
-              <TableSkeleton :columns="7" :rows="5" />
+            <TableCell :colspan="8" class="p-0">
+              <TableSkeleton :columns="8" :rows="5" />
             </TableCell>
           </TableRow>
           <TableRow v-else-if="connections.length === 0">
-            <TableCell colspan="7" class="px-6 py-8 text-center text-muted-foreground">{{ t('siteConnections.empty') }}</TableCell>
+            <TableCell colspan="8" class="px-6 py-8 text-center text-muted-foreground">{{ t('siteConnections.empty') }}</TableCell>
           </TableRow>
           <TableRow v-for="conn in connections" :key="conn.id" class="hover:bg-muted/30">
             <TableCell class="px-6 py-4">
@@ -275,6 +307,12 @@ onMounted(() => {
             <TableCell class="min-w-[220px] px-6 py-4 font-medium text-foreground break-words">{{ conn.name }}</TableCell>
             <TableCell class="min-w-[280px] px-6 py-4 text-xs text-muted-foreground font-mono break-all">{{ conn.base_url }}</TableCell>
             <TableCell class="min-w-[140px] px-6 py-4 text-xs text-muted-foreground break-words">{{ conn.protocol }}</TableCell>
+            <TableCell class="min-w-[100px] px-6 py-4 text-xs text-muted-foreground">
+              <span v-if="conn.price_markup_percent && Number(conn.price_markup_percent) !== 0" class="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                +{{ conn.price_markup_percent }}%
+              </span>
+              <span v-else class="text-muted-foreground">-</span>
+            </TableCell>
             <TableCell class="min-w-[120px] px-6 py-4">
               <span
                 class="inline-flex rounded-full border px-2.5 py-1 text-xs"
@@ -294,6 +332,15 @@ onMounted(() => {
                   @click="handlePing(conn)"
                 >
                   {{ pingingId === conn.id ? t('siteConnections.ping.loading') : 'Ping' }}
+                </Button>
+                <Button
+                  v-if="conn.price_markup_percent && Number(conn.price_markup_percent) !== 0"
+                  size="sm"
+                  variant="outline"
+                  :disabled="reapplyingId === conn.id"
+                  @click="handleReapplyMarkup(conn)"
+                >
+                  {{ reapplyingId === conn.id ? '...' : t('siteConnections.actions.reapplyMarkup') }}
                 </Button>
                 <Button size="sm" variant="outline" @click="handleToggleStatus(conn)">
                   {{ conn.status === 'active' ? t('siteConnections.actions.disable') : t('siteConnections.actions.enable') }}
@@ -371,6 +418,46 @@ onMounted(() => {
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.retryIntervals') }}</label>
               <Input v-model="form.retry_intervals" placeholder="30,60,120" />
+            </div>
+          </div>
+
+          <div class="border-t border-border pt-4">
+            <h3 class="mb-3 text-sm font-medium text-foreground">{{ t('siteConnections.form.markupSection') }}</h3>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.priceMarkupPercent') }}</label>
+                <div class="relative">
+                  <Input v-model.number="form.price_markup_percent" type="number" step="0.01" min="0" placeholder="0" />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                </div>
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.priceMarkupPercentHint') }}</p>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.priceRoundingMode') }}</label>
+                <Select v-model="form.price_rounding_mode">
+                  <SelectTrigger class="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{{ t('siteConnections.form.roundingNone') }}</SelectItem>
+                    <SelectItem value="ceil_int">{{ t('siteConnections.form.roundingCeilInt') }}</SelectItem>
+                    <SelectItem value="ceil_tenth">{{ t('siteConnections.form.roundingCeilTenth') }}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.autoSyncPrice') }}</label>
+                <Select v-model="form.auto_sync_price">
+                  <SelectTrigger class="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="false">{{ t('admin.common.no') }}</SelectItem>
+                    <SelectItem value="true">{{ t('admin.common.yes') }}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.autoSyncPriceHint') }}</p>
+              </div>
             </div>
           </div>
 

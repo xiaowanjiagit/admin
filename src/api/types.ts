@@ -466,6 +466,9 @@ export interface AdminSiteConnection {
   is_active: boolean
   last_ping_at?: string
   last_ping_status?: string
+  price_markup_percent?: number
+  price_rounding_mode?: string
+  auto_sync_price?: boolean
   created_at: string
   updated_at: string
 }

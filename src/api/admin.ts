@@ -402,6 +402,7 @@ export const adminAPI = {
   deleteSiteConnection: (id: number) => api.delete<ApiResponse>(`/admin/site-connections/${id}`),
   pingSiteConnection: (id: number) => api.post<ApiResponse>(`/admin/site-connections/${id}/ping`),
   updateSiteConnectionStatus: (id: number, data: { is_active?: boolean; status?: string }) => api.put<ApiResponse>(`/admin/site-connections/${id}/status`, data),
+  reapplyConnectionMarkup: (id: number) => api.post<ApiResponse>(`/admin/site-connections/${id}/reapply-markup`),
   // Product Mappings
   getProductMappings: (params?: Record<string, unknown>) => api.get<ApiResponse<AdminProductMapping[]>>('/admin/product-mappings', { params }),
   getProductMapping: (id: number) => api.get<ApiResponse<AdminProductMapping>>(`/admin/product-mappings/${id}`),
