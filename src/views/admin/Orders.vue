@@ -97,6 +97,7 @@ const fetchOrders = async (page = 1) => {
     })
   } catch (error) {
     orders.value = []
+    pagination.value = { page: 1, page_size: pagination.value.page_size, total: 0, total_page: 0 }
   } finally {
     loading.value = false
   }
