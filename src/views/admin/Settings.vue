@@ -161,6 +161,7 @@ const isLocalizedFieldNotEmpty = (value: Record<SupportedLanguage, string>) => {
 const form = reactive({
   brand: {
     site_name: '',
+    site_description: createLocalizedField(),
   },
   currency: 'CNY',
   contact: {
@@ -380,6 +381,7 @@ const fetchSettings = async () => {
       const brand = data.brand as Record<string, unknown> | undefined
       if (brand) {
         form.brand.site_name = String(brand.site_name || '')
+        form.brand.site_description = normalizeLocalizedField(brand.site_description)
       }
       {
         const rawCurrency = String(data.currency || 'CNY').trim().toUpperCase()
@@ -794,6 +796,14 @@ watch(currentTab, (newTab) => {
               </option>
             </select>
             <p class="text-xs text-muted-foreground">{{ t('admin.settings.brand.currencyTip') }}</p>
+          </div>
+          <div class="space-y-2 md:col-span-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-muted-foreground">{{ t('admin.settings.brand.siteDescription') }}</label>
+              <span class="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">{{ currentLang }}</span>
+            </div>
+            <Input v-model="form.brand.site_description[currentLang]" :placeholder="t('admin.settings.brand.siteDescriptionPlaceholder')" />
+            <p class="text-xs text-muted-foreground">{{ t('admin.settings.brand.siteDescriptionTip') }}</p>
           </div>
         </div>
       </div>
