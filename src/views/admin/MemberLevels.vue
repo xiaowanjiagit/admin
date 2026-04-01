@@ -4,14 +4,18 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { AdminMemberLevel } from '@/api/types'
 import IdCell from '@/components/IdCell.vue'
+import MediaPicker from '@/components/admin/MediaPicker.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import { formatDate, getLocalizedText } from '@/utils/format'
+import { getImageUrl } from '@/utils/image'
 import { notifyError, notifySuccess } from '@/utils/notify'
 import { confirmAction } from '@/utils/confirm'
+
+const isImagePath = (val: string) => !!val && val.includes('/')
 
 const { t } = useI18n()
 
@@ -31,6 +35,16 @@ const isEditing = ref(false)
 const editingId = ref<number | null>(null)
 
 const supportedLocales = ['zh-CN', 'zh-TW', 'en-US']
+
+const iconMode = ref<'emoji' | 'image'>('emoji')
+const iconCache = reactive({ emoji: '', image: '' })
+
+const switchIconMode = (mode: 'emoji' | 'image') => {
+  if (mode === iconMode.value) return
+  iconCache[iconMode.value] = form.icon
+  iconMode.value = mode
+  form.icon = iconCache[mode]
+}
 
 const form = reactive({
   name: {} as Record<string, string>,
@@ -54,6 +68,9 @@ const resetForm = () => {
   form.is_default = false
   form.sort_order = 0
   form.is_active = true
+  iconMode.value = 'emoji'
+  iconCache.emoji = ''
+  iconCache.image = ''
 }
 
 const fetchLevels = async () => {
@@ -99,6 +116,9 @@ const openEditModal = (level: AdminMemberLevel) => {
   form.is_default = Boolean(level.is_default)
   form.sort_order = level.sort_order || 0
   form.is_active = Boolean(level.is_active)
+  iconMode.value = isImagePath(form.icon) ? 'image' : 'emoji'
+  iconCache.emoji = iconMode.value === 'emoji' ? form.icon : ''
+  iconCache.image = iconMode.value === 'image' ? form.icon : ''
   showModal.value = true
 }
 
@@ -242,8 +262,10 @@ onMounted(() => {
             <TableCell class="min-w-[80px] px-6 py-4">
               <IdCell :value="level.id" />
             </TableCell>
-            <TableCell class="min-w-[88px] px-6 py-4 text-lg">
-              {{ level.icon || '-' }}
+            <TableCell class="min-w-[88px] px-6 py-4">
+              <img v-if="level.icon && isImagePath(level.icon)" :src="getImageUrl(level.icon)" class="h-8 w-8 shrink-0 rounded object-cover" :alt="getLocalizedText(level.name)" @error="($event.target as HTMLImageElement).style.display = 'none'" />
+              <span v-else-if="level.icon" class="text-lg">{{ level.icon }}</span>
+              <span v-else class="text-xs text-muted-foreground">-</span>
             </TableCell>
             <TableCell class="min-w-[90px] px-6 py-4 text-foreground font-medium">
               <div class="flex items-center gap-2">
@@ -332,7 +354,26 @@ onMounted(() => {
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">
                 {{ t('admin.memberLevels.form.icon') }}
               </label>
-              <Input v-model="form.icon" :placeholder="t('admin.memberLevels.form.iconPlaceholder')" />
+              <div class="flex items-center gap-2 mb-2">
+                <button
+                  type="button"
+                  class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                  :class="iconMode === 'emoji' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted text-muted-foreground hover:text-foreground'"
+                  @click="switchIconMode('emoji')"
+                >
+                  Emoji
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                  :class="iconMode === 'image' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted text-muted-foreground hover:text-foreground'"
+                  @click="switchIconMode('image')"
+                >
+                  {{ t('admin.memberLevels.form.iconImage') }}
+                </button>
+              </div>
+              <Input v-if="iconMode === 'emoji'" v-model="form.icon" :placeholder="t('admin.memberLevels.form.iconPlaceholder')" />
+              <MediaPicker v-else v-model="form.icon" scene="common" />
             </div>
 
             <div>
