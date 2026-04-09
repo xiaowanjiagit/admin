@@ -61,7 +61,17 @@ interface UpstreamProduct {
   price_amount: number | string
   currency?: string
   is_active: boolean
+  category_id?: number
   skus?: UpstreamSku[]
+}
+
+interface UpstreamCategory {
+  id: number
+  parent_id: number
+  slug: string
+  name: Record<string, string>
+  icon: string
+  sort_order: number
 }
 
 const detailData = ref<MappingDetail | null>(null)
@@ -81,6 +91,15 @@ const selectedProductIds = ref<Set<number>>(new Set())
 const importExpandedIds = ref<Set<number>>(new Set())
 const importing = ref(false)
 const importProgress = ref({ done: 0, total: 0, success: 0 })
+
+// Upstream categories (for "by category" mode)
+const importViewMode = ref<'category' | 'flat'>('category')
+const upstreamCategories = ref<UpstreamCategory[]>([])
+const upstreamCategoriesSupported = ref(false)
+const loadingUpstreamCategories = ref(false)
+const expandedCategoryIds = ref<Set<number>>(new Set())
+const autoCreateCategory = ref(false)
+const categoryImporting = ref(false)
 
 const normalizeFilterValue = (value: string) => (value === '__all__' ? '' : value)
 
@@ -427,10 +446,135 @@ const loadMoreUpstreamProducts = async () => {
   } catch { /* ignore */ } finally { loadingMoreUpstream.value = false }
 }
 
+const fetchUpstreamCategories = async (connectionId: string) => {
+  if (!connectionId) { upstreamCategories.value = []; upstreamCategoriesSupported.value = false; return }
+  loadingUpstreamCategories.value = true
+  try {
+    const res = await adminAPI.getUpstreamCategories({ connection_id: connectionId })
+    const data = res.data.data as { supported?: boolean; categories?: UpstreamCategory[] } | null
+    upstreamCategories.value = data?.categories || []
+    upstreamCategoriesSupported.value = data?.supported ?? false
+    // If upstream doesn't support categories, fall back to flat mode
+    if (!upstreamCategoriesSupported.value) importViewMode.value = 'flat'
+    else importViewMode.value = 'category'
+  } catch {
+    upstreamCategories.value = []
+    upstreamCategoriesSupported.value = false
+    importViewMode.value = 'flat'
+  } finally { loadingUpstreamCategories.value = false }
+}
+
+// Group upstream products by category_id
+const productsByCategory = computed(() => {
+  const map = new Map<number, UpstreamProduct[]>()
+  for (const p of upstreamProducts.value) {
+    const catId = p.category_id || 0
+    if (!map.has(catId)) map.set(catId, [])
+    map.get(catId)!.push(p)
+  }
+  return map
+})
+
+// Build display list: upstream categories with product counts
+const categoryDisplayList = computed(() => {
+  // Build parent map for breadcrumb
+  const catMap = new Map(upstreamCategories.value.map(c => [c.id, c]))
+
+  const result: { category: UpstreamCategory; productCount: number; path: string; nonMappedCount: number }[] = []
+
+  for (const cat of upstreamCategories.value) {
+    const products = productsByCategory.value.get(cat.id) || []
+    if (products.length === 0) continue  // Skip empty categories
+
+    const parentCat = cat.parent_id > 0 ? catMap.get(cat.parent_id) : undefined
+    const path = parentCat
+      ? `${getLocalizedText(parentCat.name)} / ${getLocalizedText(cat.name)}`
+      : getLocalizedText(cat.name)
+    const nonMappedCount = products.filter(p => !mappedUpstreamIds.value.has(p.id)).length
+
+    result.push({ category: cat, productCount: products.length, path, nonMappedCount })
+  }
+
+  // Also include uncategorized (category_id = 0) if any
+  const uncategorized = productsByCategory.value.get(0) || []
+  if (uncategorized.length > 0) {
+    const nonMappedCount = uncategorized.filter(p => !mappedUpstreamIds.value.has(p.id)).length
+    result.push({
+      category: { id: 0, parent_id: 0, slug: '', name: {}, icon: '', sort_order: -1 },
+      productCount: uncategorized.length,
+      path: t('productMappings.import.uncategorized'),
+      nonMappedCount,
+    })
+  }
+
+  return result
+})
+
+const toggleCategoryExpand = (catId: number) => {
+  const s = new Set(expandedCategoryIds.value)
+  if (s.has(catId)) s.delete(catId); else s.add(catId)
+  expandedCategoryIds.value = s
+}
+
+const selectAllInCategory = (catId: number) => {
+  const products = productsByCategory.value.get(catId) || []
+  const s = new Set(selectedProductIds.value)
+  const nonMapped = products.filter(p => !mappedUpstreamIds.value.has(p.id))
+  const allSelected = nonMapped.every(p => s.has(p.id))
+  if (allSelected) {
+    for (const p of nonMapped) s.delete(p.id)
+  } else {
+    for (const p of nonMapped) s.add(p.id)
+  }
+  selectedProductIds.value = s
+}
+
+const isCategoryAllSelected = (catId: number) => {
+  const products = productsByCategory.value.get(catId) || []
+  const nonMapped = products.filter(p => !mappedUpstreamIds.value.has(p.id))
+  return nonMapped.length > 0 && nonMapped.every(p => selectedProductIds.value.has(p.id))
+}
+
+const handleImportCategory = async (catId: number) => {
+  if (!importConnectionId.value) return
+  // Validate: must have autoCreateCategory or a selected local category
+  const localCatId = importCategoryId.value !== '__none__' ? Number(importCategoryId.value) : 0
+  if (!autoCreateCategory.value && localCatId === 0) {
+    notifyError(t('productMappings.import.selectCategoryFirst'))
+    return
+  }
+  categoryImporting.value = true
+  try {
+    const res = await adminAPI.batchImportByCategory({
+      connection_id: Number(importConnectionId.value),
+      upstream_category_id: catId,
+      auto_create_category: autoCreateCategory.value,
+      local_category_id: localCatId || undefined,
+    })
+    const data = res.data.data as { total: number; success_count: number; category_name?: string } | null
+    const total = data?.total || 0
+    const success = data?.success_count || 0
+    if (success === total) {
+      notifySuccess(t('productMappings.import.categoryImportSuccess', { success, total }))
+    } else {
+      notifySuccess(t('productMappings.import.categoryImportPartial', { success, total }))
+    }
+    // Refresh mapped IDs and list
+    fetchUpstreamProducts(importConnectionId.value)
+    fetchMappings(1)
+    fetchCategories()
+  } catch (err: any) {
+    notifyError(err?.response?.data?.message || err?.message)
+  } finally { categoryImporting.value = false }
+}
+
 watch(importConnectionId, (value) => {
   selectedProductIds.value = new Set()
   importExpandedIds.value = new Set()
+  expandedCategoryIds.value = new Set()
+  autoCreateCategory.value = false
   fetchUpstreamProducts(value)
+  fetchUpstreamCategories(value)
 })
 
 const BATCH_SIZE = 3
@@ -737,6 +881,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
           <DialogTitle>{{ t('productMappings.importTitle') }}</DialogTitle>
         </DialogHeader>
         <div class="space-y-5">
+          <!-- Connection selector + view mode toggle -->
           <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
             <div class="min-w-[200px] flex-1">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.import.selectConnection') }}</label>
@@ -747,7 +892,28 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
                 </SelectContent>
               </Select>
             </div>
-            <div class="min-w-[200px] flex-1">
+            <!-- View mode tabs (only show when categories are supported) -->
+            <div v-if="importConnectionId && upstreamCategoriesSupported" class="flex items-center gap-1 rounded-lg border border-border p-0.5">
+              <button
+                class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                :class="importViewMode === 'category' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
+                @click="importViewMode = 'category'"
+              >{{ t('productMappings.import.byCategory') }}</button>
+              <button
+                class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                :class="importViewMode === 'flat' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'"
+                @click="importViewMode = 'flat'"
+              >{{ t('productMappings.import.flatList') }}</button>
+            </div>
+          </div>
+
+          <!-- Category options: auto-create + local category selector -->
+          <div v-if="importConnectionId" class="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <div v-if="importViewMode === 'category' && upstreamCategoriesSupported" class="flex items-center gap-2">
+              <input id="auto-create-cat" type="checkbox" v-model="autoCreateCategory" class="h-4 w-4 rounded border-border accent-primary cursor-pointer" />
+              <label for="auto-create-cat" class="text-xs font-medium text-muted-foreground cursor-pointer">{{ t('productMappings.import.autoCreateCategory') }}</label>
+            </div>
+            <div v-if="!autoCreateCategory || importViewMode === 'flat'" class="min-w-[200px] flex-1">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.import.category') }}</label>
               <Select v-model="importCategoryId">
                 <SelectTrigger class="h-9 w-full"><SelectValue :placeholder="t('productMappings.import.categoryPlaceholder')" /></SelectTrigger>
@@ -767,7 +933,84 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
             </div>
           </div>
 
-          <div class="rounded-lg border border-border overflow-hidden">
+          <!-- ===== Category View Mode ===== -->
+          <div v-if="importViewMode === 'category' && upstreamCategoriesSupported" class="rounded-lg border border-border overflow-hidden">
+            <div v-if="!importConnectionId" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.selectConnectionFirst') }}</div>
+            <div v-else-if="loadingUpstream || loadingUpstreamCategories" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.upstreamProductLoading') }}</div>
+            <div v-else-if="categoryDisplayList.length === 0" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.noUpstreamProducts') }}</div>
+            <div v-else class="divide-y divide-border max-h-[55vh] overflow-y-auto">
+              <div v-for="catItem in categoryDisplayList" :key="catItem.category.id">
+                <!-- Category header -->
+                <div class="flex items-center gap-3 px-4 py-3 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors" @click="toggleCategoryExpand(catItem.category.id)">
+                  <svg class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" :class="expandedCategoryIds.has(catItem.category.id) ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                  </svg>
+                  <div class="min-w-0 flex-1">
+                    <span class="text-sm font-medium text-foreground">{{ catItem.path }}</span>
+                    <span class="ml-2 text-xs text-muted-foreground">{{ t('productMappings.import.productsCount', { count: catItem.productCount }) }}</span>
+                    <span v-if="catItem.nonMappedCount < catItem.productCount" class="ml-1 text-xs text-amber-600">({{ catItem.productCount - catItem.nonMappedCount }} {{ t('productMappings.import.alreadyMapped') }})</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0" @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="isCategoryAllSelected(catItem.category.id)"
+                      class="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      @change="selectAllInCategory(catItem.category.id)"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      class="h-7 text-xs"
+                      :disabled="categoryImporting || catItem.nonMappedCount === 0"
+                      @click="handleImportCategory(catItem.category.id)"
+                    >{{ t('productMappings.import.importCategory') }}</Button>
+                  </div>
+                </div>
+
+                <!-- Expanded product list under this category -->
+                <div v-if="expandedCategoryIds.has(catItem.category.id)">
+                  <div
+                    v-for="product in (productsByCategory.get(catItem.category.id) || [])"
+                    :key="product.id"
+                    class="transition-colors border-t border-border/30"
+                    :class="[selectedProductIds.has(product.id) ? 'bg-primary/5' : '', mappedUpstreamIds.has(product.id) ? 'opacity-50' : '']"
+                  >
+                    <div class="flex items-center gap-3 px-4 pl-11 py-2.5" :class="mappedUpstreamIds.has(product.id) ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted/20'" @click="toggleProduct(product.id)">
+                      <input type="checkbox" :checked="selectedProductIds.has(product.id)" :disabled="mappedUpstreamIds.has(product.id)" class="h-4 w-4 shrink-0 rounded border-border accent-primary" :class="mappedUpstreamIds.has(product.id) ? 'cursor-not-allowed' : 'cursor-pointer'" @click.stop="toggleProduct(product.id)" />
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="break-words text-sm text-foreground sm:truncate">{{ getLocalizedText(product.title) }}</span>
+                          <span class="shrink-0 text-[10px] font-mono text-muted-foreground">#{{ product.id }}</span>
+                          <span v-if="mappedUpstreamIds.has(product.id)" class="shrink-0 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">
+                            {{ t('productMappings.import.alreadyMapped') }}
+                          </span>
+                        </div>
+                        <div class="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span>{{ getSkuPriceRange(product) }}<span v-if="product.currency" class="ml-0.5">{{ product.currency }}</span></span>
+                          <span>SKU: {{ product.skus?.length || 0 }}</span>
+                          <span :class="getSkuStockClass(product)">{{ getSkuStockSummary(product) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Load more for category mode -->
+              <div v-if="hasMoreUpstream" class="px-4 py-3 text-center border-t border-border/50">
+                <button
+                  class="inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+                  :disabled="loadingMoreUpstream"
+                  @click="loadMoreUpstreamProducts"
+                >
+                  {{ loadingMoreUpstream ? t('productMappings.import.loadingMore') : t('productMappings.import.loadMore', { remaining: upstreamTotal - upstreamProducts.length }) }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== Flat List View Mode ===== -->
+          <div v-if="importViewMode === 'flat' || !upstreamCategoriesSupported" class="rounded-lg border border-border overflow-hidden">
             <div v-if="!importConnectionId" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.selectConnectionFirst') }}</div>
             <div v-else-if="loadingUpstream" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.upstreamProductLoading') }}</div>
             <div v-else-if="upstreamProducts.length === 0" class="px-6 py-12 text-center text-sm text-muted-foreground">{{ t('productMappings.import.noUpstreamProducts') }}</div>
@@ -840,6 +1083,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
             </div>
           </div>
 
+          <!-- Footer: selected count + action buttons -->
           <div class="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <span v-if="selectedProductIds.size > 0" class="text-sm text-muted-foreground">{{ t('productMappings.import.selectedCount', { count: selectedProductIds.size }) }}</span>
             <span v-else />
