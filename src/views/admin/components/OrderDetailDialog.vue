@@ -102,16 +102,81 @@ const channelTypeLabel = (value?: string) => {
   return map[value] || value
 }
 
-const itemProfit = (item: AdminOrderItem) => {
-  const revenue = parseMoneyValue(item.total_price)
-    - parseMoneyValue(item.coupon_discount_amount)
+const itemRevenueAmount = (item: AdminOrderItem) => {
+  return parseMoneyValue(item.total_price) - parseMoneyValue(item.coupon_discount_amount)
+}
+
+const itemBaseProfit = (item: AdminOrderItem) => {
   const cost = parseMoneyValue(item.cost_price) * (item.quantity || 1)
-  return Number((revenue - cost).toFixed(2))
+  return itemRevenueAmount(item) - cost
+}
+
+const refundedAmount = (order: AdminOrder | null) => {
+  if (!order) return 0
+  return Math.max(parseMoneyValue(order.refunded_amount), 0)
+}
+
+const toCents = (amount: number) => Math.round(amount * 100)
+const fromCents = (cents: number) => Number((cents / 100).toFixed(2))
+
+const refundAllocationCache = new WeakMap<AdminOrder, Map<AdminOrderItem, number>>()
+
+const buildRefundAllocation = (order: AdminOrder | null) => {
+  const allocation = new Map<AdminOrderItem, number>()
+  if (!order || !Array.isArray(order.items) || order.items.length === 0) return allocation
+
+  const refundedCents = toCents(refundedAmount(order))
+  if (refundedCents <= 0) return allocation
+
+  const items = order.items
+  const weights = items.map((item) => Math.max(itemRevenueAmount(item), 0))
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0)
+
+  if (totalWeight <= 0) {
+    const base = Math.floor(refundedCents / items.length)
+    let remainder = refundedCents - base * items.length
+    items.forEach((item) => {
+      const extra = remainder > 0 ? 1 : 0
+      if (remainder > 0) remainder -= 1
+      allocation.set(item, fromCents(base + extra))
+    })
+    return allocation
+  }
+
+  let assigned = 0
+  items.forEach((item, index) => {
+    let shareCents = 0
+    if (index === items.length - 1) {
+      shareCents = Math.max(refundedCents - assigned, 0)
+    } else {
+      shareCents = Math.floor((refundedCents * (weights[index] ?? 0)) / totalWeight)
+      assigned += shareCents
+    }
+    allocation.set(item, fromCents(shareCents))
+  })
+
+  return allocation
+}
+
+const itemRefundAmount = (order: AdminOrder | null, item: AdminOrderItem) => {
+  if (!order) return 0
+  const cached = refundAllocationCache.get(order)
+  if (cached) {
+    return cached.get(item) || 0
+  }
+  const allocation = buildRefundAllocation(order)
+  refundAllocationCache.set(order, allocation)
+  return allocation.get(item) || 0
+}
+
+const itemProfit = (order: AdminOrder | null, item: AdminOrderItem) => {
+  const profit = itemBaseProfit(item) - itemRefundAmount(order, item)
+  return Number(profit.toFixed(2))
 }
 
 const orderProfit = (order: AdminOrder | null) => {
   if (!order?.items?.length) return 0
-  return Number(order.items.reduce((sum, item) => sum + itemProfit(item), 0).toFixed(2))
+  return Number(order.items.reduce((sum, item) => sum + itemProfit(order, item), 0).toFixed(2))
 }
 
 const hasWalletPayment = (order: AdminOrder) => hasPositiveAmount(order?.wallet_paid_amount)
@@ -737,14 +802,20 @@ watch(
                     <div v-if="hasPositiveAmount(item.member_discount_amount)" class="text-amber-700">
                       {{ t('orderDetail.memberDiscountLabel') }}：{{ formatMoney(item.member_discount_amount, selectedOrder.currency) }}
                     </div>
+                    <div v-if="hasPositiveAmount(itemRefundAmount(selectedOrder, item))" class="text-blue-700">
+                      {{ t('admin.orders.itemRefund') }}：{{ formatMoney(itemRefundAmount(selectedOrder, item).toFixed(2), selectedOrder.currency) }}
+                    </div>
                     <div class="font-medium text-emerald-700">
-                      {{ t('admin.orders.itemProfit') }}：{{ formatMoney(itemProfit(item).toFixed(2), selectedOrder.currency) }}
+                      {{ t('admin.orders.itemProfit') }}：{{ formatMoney(itemProfit(selectedOrder, item).toFixed(2), selectedOrder.currency) }}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div v-if="selectedOrder.items && selectedOrder.items.length" class="mt-3 flex justify-end">
+            <div v-if="selectedOrder.items && selectedOrder.items.length" class="mt-3 flex flex-wrap justify-end gap-2">
+              <div v-if="hasPositiveAmount(selectedOrder.refunded_amount)" class="rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700">
+                {{ t('admin.orders.itemRefund') }}：{{ formatMoney(selectedOrder.refunded_amount, selectedOrder.currency) }}
+              </div>
               <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-2 text-sm font-semibold text-emerald-700">
                 {{ t('admin.orders.orderProfit') }}：{{ formatMoney(orderProfit(selectedOrder).toFixed(2), selectedOrder.currency) }}
               </div>
@@ -812,8 +883,11 @@ watch(
                         <div v-if="hasPositiveAmount(item.member_discount_amount)" class="text-amber-700">
                           {{ t('orderDetail.memberDiscountLabel') }}：{{ formatMoney(item.member_discount_amount, selectedOrder.currency) }}
                         </div>
+                        <div v-if="hasPositiveAmount(itemRefundAmount(child, item))" class="text-blue-700">
+                          {{ t('admin.orders.itemRefund') }}：{{ formatMoney(itemRefundAmount(child, item).toFixed(2), selectedOrder.currency) }}
+                        </div>
                         <div class="font-medium text-emerald-700">
-                          {{ t('admin.orders.itemProfit') }}：{{ formatMoney(itemProfit(item).toFixed(2), selectedOrder.currency) }}
+                          {{ t('admin.orders.itemProfit') }}：{{ formatMoney(itemProfit(child, item).toFixed(2), selectedOrder.currency) }}
                         </div>
                       </div>
                     </div>
