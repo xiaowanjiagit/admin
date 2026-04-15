@@ -35,6 +35,7 @@ const registrationForm = reactive({
   registration_enabled: true,
   email_verification_enabled: true,
 })
+const orderPaymentExpireMinutes = ref(15)
 type FooterLinkItem = {
   name: string
   url: string
@@ -163,6 +164,7 @@ const form = reactive({
     site_description: createLocalizedField(),
   },
   currency: 'CNY',
+  order_max_refund_days: 30,
   contact: {
     telegram: '',
     whatsapp: '',
@@ -314,8 +316,9 @@ const notifyErrorIfNeeded = (err: unknown, fallback: string) => {
 const fetchSettings = async () => {
   loading.value = true
   try {
-    const [siteRes, smtpRes, captchaRes, telegramRes, dashboardRes, registrationRes, orderEmailTmplRes] = await Promise.all([
+    const [siteRes, orderRes, smtpRes, captchaRes, telegramRes, dashboardRes, registrationRes, orderEmailTmplRes] = await Promise.all([
       adminAPI.getSettings({ key: 'site_config' }),
+      adminAPI.getSettings({ key: 'order_config' }),
       adminAPI.getSMTPSettings(),
       adminAPI.getCaptchaSettings(),
       adminAPI.getTelegramAuthSettings(),
@@ -394,6 +397,15 @@ const fetchSettings = async () => {
 
       const rawTemplateMode = String(data.template_mode || 'card').trim()
       form.template_mode = rawTemplateMode === 'list' ? 'list' : 'card'
+    }
+
+    if (orderRes.data && orderRes.data.data) {
+      const orderData = orderRes.data.data as Record<string, unknown>
+      form.order_max_refund_days = clampNumber(orderData.max_refund_days, 0, 3650, 30)
+      orderPaymentExpireMinutes.value = clampNumber(orderData.payment_expire_minutes, 1, 10080, 15)
+    } else {
+      form.order_max_refund_days = 30
+      orderPaymentExpireMinutes.value = 15
     }
 
     if (smtpRes.data && smtpRes.data.data) {
@@ -519,10 +531,10 @@ const saveRegistrationSettings = async () => {
 const saveSiteSettings = async () => {
   const payload = {
     key: 'site_config',
-      value: {
-        brand: form.brand,
-        currency: String(form.currency || 'CNY').trim().toUpperCase(),
-        contact: form.contact,
+    value: {
+      brand: form.brand,
+      currency: String(form.currency || 'CNY').trim().toUpperCase(),
+      contact: form.contact,
       seo: form.seo,
       about: form.about,
       legal: form.legal,
@@ -532,6 +544,20 @@ const saveSiteSettings = async () => {
     },
   }
   await adminAPI.updateSettings(payload)
+}
+
+const saveOrderSettings = async () => {
+  const normalizedMaxRefundDays = clampNumber(form.order_max_refund_days, 0, 3650, 30)
+  const normalizedPaymentExpireMinutes = clampNumber(orderPaymentExpireMinutes.value, 1, 10080, 15)
+  form.order_max_refund_days = normalizedMaxRefundDays
+  orderPaymentExpireMinutes.value = normalizedPaymentExpireMinutes
+  await adminAPI.updateSettings({
+    key: 'order_config',
+    value: {
+      payment_expire_minutes: normalizedPaymentExpireMinutes,
+      max_refund_days: normalizedMaxRefundDays,
+    },
+  })
 }
 
 const addAboutServiceItem = () => {
@@ -643,6 +669,7 @@ const saveSettings = async () => {
       await saveDashboardSettings()
     } else {
       await saveRegistrationSettings()
+      await saveOrderSettings()
       await saveSiteSettings()
     }
     notifySuccess(t('admin.settings.alerts.saveSuccess'))
@@ -716,6 +743,37 @@ onMounted(() => {
               <label for="email-verification-enabled" class="text-sm font-medium">{{ t('admin.settings.registration.emailVerificationEnabled') }}</label>
               <p class="text-xs text-muted-foreground">{{ t('admin.settings.registration.emailVerificationEnabledDesc') }}</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card">
+        <div class="border-b border-border bg-muted/40 px-6 py-4">
+          <h2 class="text-lg font-semibold">{{ t('admin.settings.order.title') }}</h2>
+          <p class="mt-1 text-xs text-muted-foreground">{{ t('admin.settings.order.subtitle') }}</p>
+        </div>
+        <div class="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
+          <div class="space-y-2">
+            <label class="text-xs font-medium text-muted-foreground">{{ t('admin.settings.order.paymentExpireMinutes') }}</label>
+            <Input
+              v-model.number="orderPaymentExpireMinutes"
+              type="number"
+              min="1"
+              max="10080"
+              :placeholder="t('admin.settings.order.paymentExpireMinutesPlaceholder')"
+            />
+            <p class="text-xs text-muted-foreground">{{ t('admin.settings.order.paymentExpireMinutesTip') }}</p>
+          </div>
+          <div class="space-y-2">
+            <label class="text-xs font-medium text-muted-foreground">{{ t('admin.settings.order.maxRefundDays') }}</label>
+            <Input
+              v-model.number="form.order_max_refund_days"
+              type="number"
+              min="0"
+              max="3650"
+              :placeholder="t('admin.settings.order.maxRefundDaysPlaceholder')"
+            />
+            <p class="text-xs text-muted-foreground">{{ t('admin.settings.order.maxRefundDaysTip') }}</p>
           </div>
         </div>
       </div>
