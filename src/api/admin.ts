@@ -248,7 +248,7 @@ export const adminAPI = {
       payload.append(key, value)
     })
     payload.append('scene', scene)
-    return api.post('/admin/upload', payload)
+    return api.post('/admin/upload', payload, { timeoutMs: 60000 })
   },
   // 素材管理
   getMedia: (params?: Record<string, unknown>) => api.get('/admin/media', { params }),

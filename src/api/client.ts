@@ -33,6 +33,7 @@ interface RequestOptions {
   headers?: Record<string, string>
   blob?: boolean
   data?: any
+  timeoutMs?: number
   [key: string]: any
 }
 
@@ -66,7 +67,7 @@ function getHttpErrorMessage(status: number): string {
 }
 
 const baseURL = `${API_BASE_URL}${API_PREFIX}`
-const timeout = 10000
+const defaultTimeoutMs = 10000
 
 async function request(method: string, path: string, bodyOrOptions?: any, options?: RequestOptions): Promise<{ data: any }> {
   let body: any = undefined
@@ -99,8 +100,11 @@ async function request(method: string, path: string, bodyOrOptions?: any, option
     headers['Content-Type'] = 'application/json'
   }
 
+  const timeoutMs = typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0
+    ? opts.timeoutMs
+    : defaultTimeoutMs
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeout)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   let response: Response
   try {
