@@ -130,8 +130,7 @@ const wechatConfig = reactive({
 const epusdtConfig = reactive({
   gateway_url: '',
   auth_token: '',
-  trade_type: 'usdt.trc20',
-  fiat: 'CNY',
+  currency: 'CNY',
   notify_url: '',
   return_url: '',
 })
@@ -347,8 +346,7 @@ const resetWechatConfig = () => {
 const resetEpusdtConfig = () => {
   epusdtConfig.gateway_url = ''
   epusdtConfig.auth_token = ''
-  epusdtConfig.trade_type = 'usdt.trc20'
-  epusdtConfig.fiat = 'CNY'
+  epusdtConfig.currency = 'CNY'
   epusdtConfig.notify_url = 'https://api.yourdomain.com/api/v1/payments/callback'
   epusdtConfig.return_url = 'https://yourdomain.com/pay'
 }
@@ -459,8 +457,7 @@ const applyWechatConfig = (raw: Record<string, unknown>) => {
 const applyEpusdtConfig = (raw: Record<string, unknown>) => {
   epusdtConfig.gateway_url = String(raw.gateway_url || '')
   epusdtConfig.auth_token = String(raw.auth_token || '')
-  epusdtConfig.trade_type = String(raw.trade_type || 'usdt.trc20')
-  epusdtConfig.fiat = String(raw.fiat || 'CNY')
+  epusdtConfig.currency = String(raw.currency || 'CNY')
   epusdtConfig.notify_url = String(raw.notify_url || '')
   epusdtConfig.return_url = String(raw.return_url || '')
 }
@@ -616,14 +613,9 @@ const buildEpusdtConfig = () => {
   config.notify_url = notifyUrl || 'https://api.yourdomain.com/api/v1/payments/callback'
   config.return_url = returnUrl || 'https://yourdomain.com/pay'
 
-  // Optional fields
-  const tradeType = String(epusdtConfig.trade_type || '').trim()
-  if (tradeType !== '') {
-    config.trade_type = tradeType
-  }
-  const fiat = String(epusdtConfig.fiat || '').trim()
-  if (fiat !== '') {
-    config.fiat = fiat
+  const currency = String(epusdtConfig.currency || '').trim()
+  if (currency !== '') {
+    config.currency = currency.toUpperCase()
   }
 
   return config
@@ -880,9 +872,7 @@ const handleSubmit = async () => {
     channel_type:
       form.provider_type === 'tokenpay'
         ? 'usdt'
-        : form.provider_type === 'epusdt'
-          ? 'usdt-trc20'
-          : form.channel_type,
+        : form.channel_type,
     interaction_mode: form.interaction_mode,
     fee_rate: String(form.fee_rate || '0').trim(),
     fixed_fee: String(form.fixed_fee || '0').trim(),
@@ -942,7 +932,7 @@ const closeModal = () => {
               </SelectContent>
             </Select>
           </div>
-          <div v-if="form.provider_type !== 'tokenpay' && form.provider_type !== 'epusdt'" class="min-w-0">
+          <div v-if="form.provider_type !== 'tokenpay'" class="min-w-0">
             <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.channelType') }}</label>
             <Select v-model="form.channel_type">
               <SelectTrigger class="h-9 w-full">
@@ -1286,12 +1276,8 @@ const closeModal = () => {
               <Input v-model="epusdtConfig.auth_token" :placeholder="t('admin.paymentChannels.modal.epusdtAuthTokenPlaceholder')" />
             </div>
             <div class="min-w-0">
-              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.epusdtTradeType') }}</label>
-              <Input v-model="epusdtConfig.trade_type" :placeholder="t('admin.paymentChannels.modal.epusdtTradeTypePlaceholder')" />
-            </div>
-            <div class="min-w-0">
-              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.epusdtFiat') }}</label>
-              <Input v-model="epusdtConfig.fiat" :placeholder="t('admin.paymentChannels.modal.epusdtFiatPlaceholder')" />
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.epusdtCurrency') }}</label>
+              <Input v-model="epusdtConfig.currency" :placeholder="t('admin.paymentChannels.modal.epusdtCurrencyPlaceholder')" />
             </div>
             <div class="min-w-0">
               <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.epusdtNotifyUrl') }}</label>

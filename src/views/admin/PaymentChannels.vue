@@ -106,8 +106,7 @@ const resolveChannelTypeDisplay = (channel: AdminPaymentChannel) => {
     return currency || 'USDT'
   }
   if (channel.provider_type === 'epusdt') {
-    const tradeType = String(channel.config_json?.trade_type || '').trim()
-    return tradeType || 'usdt.trc20'
+    return channelTypeLabel(channel.channel_type)
   }
   return channelTypeLabel(channel.channel_type)
 }
